@@ -45,7 +45,7 @@
 int addr = 0;         // Startadresse für EEPROM-Speicher
 int debugmode = 10; // für fanmode debug 
 int cache;
-int mode;            // Modus für Lüftersteuerung (1:auto; 0:manuell)
+int PIDmode = 0;            // Modus für Lüftersteuerung (1:auto; 0:manuell)
 
 int32_t mynumber;  // besonderer Integer fürs Abrufen der Werte vom Display
 int   aTsoll ;     // Solltemperatur für interne Verarbeitung im Arduino
@@ -92,6 +92,9 @@ boolean tuning = false;
 boolean starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
+//Specify the links and initial tuning parameters
+PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, DIRECT); // Library Befehl für PID
+PID_ATune aTune(&Input, &Output); //Library Befehl für Autotune
 
 NexNumber t1   = NexNumber(0, 1, "t1");
 NexNumber t2   = NexNumber(0, 2, "t2");
@@ -108,8 +111,8 @@ NexButton PWMdown     = NexButton(1, 7, "PWMdown");
 NexSlider slider      = NexSlider(1, 15, "slider");
 NexProgressBar fanbar = NexProgressBar(1, 12, "fanbar");
 NexNumber n0          = NexNumber(1, 6, "n0");
-NexDSButton fanmode   = NexDSButton(1, 16, "fanmode");
-NexDSButton tune = NexDSButton(1, 17, "tune"); // Button Autotune 
+NexButton fanmode   = NexButton(1, 16, "fanmode");
+NexButton tune = NexButton(1, 17, "tune"); // Button Autotune 
 NexButton Entflammung = NexButton(3,2, "Entflammung"); // Button Entflammung
 NexButton stpEntflammung = NexButton(3,3, "stpEntflammung"); //Button Stop Entflammung
 
@@ -143,6 +146,66 @@ int max6675CLK = 24; // Serial2 Clock am PIN 10
 
 // Initialisierung der MAX6675 Bibliothek mit den Werten der PINs:
 MAX6675 thermo(max6675CLK, max6675CS, max6675SO);
+
+// -------------------- EEPROM Funktionalität ----------------------------------------------------
+
+void EEPROMWriteInt(int address, int value)
+{
+  byte two = (value & 0xFF);
+  byte one = ((value >> 8) & 0xFF);
+
+  EEPROM.update(address, two);
+  EEPROM.update(address + 1, one);
+}
+int EEPROMReadInt(int address)
+{
+  long two = EEPROM.read(address);
+  long one = EEPROM.read(address + 1);
+
+  return ((two << 0) & 0xFFFFFF) + ((one << 8) & 0xFFFFFFFF);
+}
+
+void loadEEPROM(String pagename, String Variable, int value) {
+  Serial2.print(pagename + "." + Variable + ".val=" + String(value)); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+}
+
+void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem EEPROM des Arduino speichern
+
+  KP.getValue(&mynumber); // aktuelle Werte vom Display abrufen
+  EEPROMWriteInt(0, mynumber);   // Werte in EEPROM schreiben
+  aKP = mynumber;
+  delay(50);
+  KI.getValue(&mynumber);
+  EEPROMWriteInt(2, mynumber);
+  aKI = mynumber/1000;
+  delay(50);
+  KD.getValue(&mynumber);
+  EEPROMWriteInt(4, mynumber);
+  aKD = mynumber/1000;
+  delay(50);
+  tsample.getValue(&mynumber);
+  EEPROMWriteInt(6, mynumber);
+  atsample = mynumber;
+
+  EEPROMWriteInt(8, aTsoll); // aktuell eingestellten Tsoll-Wert speichern
+  EEPROMWriteInt(10, PIDmode);  // aktuellen Fan-modus speichern
+
+
+  myPID.SetTunings(aKP, aKI, aKD);
+
+  Serial2.print("vis Diskette,1"); // Wenn erfolgreich gespeichert wurde, Disketten-Symbol auf Display anzeigen
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial.print("savePopCallback ausgeführt");
+  Serial.print("\n");
+}
+
+
 
 // Soll-Temperatur einsetllen Funktionalität -----------------------------------------------------
 
@@ -234,7 +297,9 @@ void Startphase(){
   Serial.print("\n");
 }
 
-// Ende Entflammungsfunktionalität -----------------------------------------------------------
+// Anfang PWM Manuelle Lüfter Kontrolle Funktionalität ----------------------------------------------------------
+
+
 
 // Anfang Temperaturmessung-Funtionalität -----------------------------------------
 
@@ -287,6 +352,9 @@ void measuretemp()
     averageT2 = (1023 / averageT2 - 1) * SERIESRESISTOR;
     averageT3 = (1023 / averageT3 - 1) * SERIESRESISTOR;
     averageT4 = (1023 / averageT4 - 1) * SERIESRESISTOR;
+    
+    // Debug Optionen
+
     //Serial.print("Thermistor resistance ");
     //Serial.println(average);
 
@@ -383,6 +451,7 @@ void sendTemp(int TempNum, float Temp) //Diese Funktion zerlegt einen float-Temp
 
 void setup()
 {
+	//Serials
   Serial.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
   Serial2.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
   analogReference(EXTERNAL); // Für analoge Temperatursensoren
@@ -391,14 +460,44 @@ void setup()
   //Soll-Temperatur Callbacks attach
   Tup.attachPop(TupPopCallback);   
   Tdown.attachPop(TdownPopCallback); 
-  //
+  //Safe Cofig Seite
+  save.attachPop(savePopCallback);
+
+  // Callbacks für Autostart funktion
   Entflammung.attachPop(EntflammungPopCallback);
   stpEntflammung.attachPop(stpEntflammungPopCallback);
+
+
+
+  //Initialisierung Variablen Regler
+  // Gespeicherte Werte aus EEPROM laden und ans Display senden:
+  loadEEPROM("config", "KP", EEPROMReadInt(0)); // KP NUr für die Darstellung auf dem Display 
+  dispKP = EEPROMReadInt(0);						//Übergabe von EEPROM an Variablen Arbeitsspeicher
+  loadEEPROM("config", "KI", EEPROMReadInt(2)); // KI
+  dispKI = EEPROMReadInt(2);
+  loadEEPROM("config", "KD", EEPROMReadInt(4)); // KD
+  dispKD = EEPROMReadInt(4);
+  loadEEPROM("config", "tsample", EEPROMReadInt(6)); // tsample
+  atsample = EEPROMReadInt(6);
+  myPID.SetSampleTime(atsample);			// Sample Time für Regler einstellen
+  loadEEPROM("main", "Tsoll", EEPROMReadInt(8)); // Tsoll
+  aTsoll = EEPROMReadInt(8);
+  loadEEPROM("Fan", "mode", EEPROMReadInt(10)); // Fan-mode (1:auto, 0:manuell)
+  PIDmode = EEPROMReadInt(10);
+
+  aKP = dispKP;
+  aKI = dispKI/1000;
+  aKD = dispKD/1000;
+
+  myPID.SetTunings(aKP, aKI, aKD);
+  myPID.SetOutputLimits(85, 255);
+
 }
 
 void loop()
 {
   nexLoop(nex_listen_list);        // Auf Signale vom Display hören
+
 
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= 5000) 
@@ -408,4 +507,7 @@ void loop()
     Startphase();
     measuretemp();
   }
+
+
+
 }
