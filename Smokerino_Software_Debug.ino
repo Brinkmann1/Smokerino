@@ -43,7 +43,6 @@
 
 //-------------- Variablen ---------------
 int addr = 0;         // Startadresse für EEPROM-Speicher
-int debugmode = 10; // für fanmode debug 
 int cache;
 int PIDmode = 0;            // Modus für Lüftersteuerung (1:auto; 0:manuell)
 
@@ -80,7 +79,10 @@ int dispKD;
 
 
 // Variablen für PID-Regler und Autotune:
-double Setpoint, Input, Output;
+double Setpoint;
+double Input;
+double Output;
+double lastOutput;
 
 byte ATuneModeRemember=2;
 double aTuneStep=85;
@@ -93,7 +95,7 @@ boolean starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, DIRECT); // Library Befehl für PID
+PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, P_ON_M,  DIRECT); // Library Befehl für PID
 PID_ATune aTune(&Input, &Output); //Library Befehl für Autotune
 
 NexNumber t1   = NexNumber(0, 1, "t1");
@@ -111,7 +113,7 @@ NexButton PWMdown     = NexButton(1, 7, "PWMdown");
 NexSlider slider      = NexSlider(1, 15, "slider");
 NexProgressBar fanbar = NexProgressBar(1, 12, "fanbar");
 NexNumber n0          = NexNumber(1, 6, "n0");
-NexButton fanmode   = NexButton(1, 16, "fanmode");
+NexButton fanmode 	= NexButton(1, 16, "fanmode");
 NexButton tune = NexButton(1, 17, "tune"); // Button Autotune 
 NexButton Entflammung = NexButton(3,2, "Entflammung"); // Button Entflammung
 NexButton stpEntflammung = NexButton(3,3, "stpEntflammung"); //Button Stop Entflammung
@@ -176,26 +178,37 @@ void loadEEPROM(String pagename, String Variable, int value) {
 void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem EEPROM des Arduino speichern
 
   KP.getValue(&mynumber); // aktuelle Werte vom Display abrufen
-  EEPROMWriteInt(0, mynumber);   // Werte in EEPROM schreiben
-  aKP = mynumber;
-  delay(50);
+  dispKP = mynumber;
+  EEPROMWriteInt(0, dispKP);   // Werte in EEPROM schreiben
+  Serial.println(dispKP);
+  delay(100);
   KI.getValue(&mynumber);
-  EEPROMWriteInt(2, mynumber);
-  aKI = mynumber/1000;
-  delay(50);
+  dispKI = mynumber;
+  EEPROMWriteInt(2, dispKI);
+  Serial.println(dispKI);
+  delay(100);
   KD.getValue(&mynumber);
-  EEPROMWriteInt(4, mynumber);
-  aKD = mynumber/1000;
-  delay(50);
+  dispKD = mynumber;
+  EEPROMWriteInt(4, dispKD);
+  Serial.println(dispKD);
+  delay(100);
   tsample.getValue(&mynumber);
-  EEPROMWriteInt(6, mynumber);
+  //EEPROMWriteInt(6, mynumber);
   atsample = mynumber;
-
+  Serial.println(atsample);
+  delay(100);
   EEPROMWriteInt(8, aTsoll); // aktuell eingestellten Tsoll-Wert speichern
+  delay(100);
+  PIDmode = myPID.GetMode();
   EEPROMWriteInt(10, PIDmode);  // aktuellen Fan-modus speichern
 
-
+  aKP = dispKP;
+  aKI = dispKI/1000;
+  aKD = dispKD/100;
+  
   myPID.SetTunings(aKP, aKI, aKD);
+
+
 
   Serial2.print("vis Diskette,1"); // Wenn erfolgreich gespeichert wurde, Disketten-Symbol auf Display anzeigen
   Serial2.write(0xff);
@@ -203,6 +216,9 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   Serial2.write(0xff);
   Serial.print("savePopCallback ausgeführt");
   Serial.print("\n");
+  Serial.println(aKP,4);
+  Serial.println(aKI,4);
+  Serial.println(aKD,4);
 }
 
 
@@ -249,7 +265,7 @@ void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
 }
 
 void StartEntflammung(){
-  digitalWrite(RELAISPIN, HIGH);
+  digitalWrite(RELAISPIN, LOW);
   EntflammungTimerCurrent = millis();
   starting = true; 
   Serial2.print("Main.vastarting.val=1"); // starting auf Display darstellen
@@ -270,28 +286,28 @@ void stpEntflammungPopCallback(void *ptr){
 }
 
 void FinishEntflammung(){
-  digitalWrite(RELAISPIN, LOW);
-  starting = false;           // bool zurücksetzen
-  Serial2.print("Main.vastarting.val=0"); 
-    Serial2.write(0xff);
-    Serial2.write(0xff);
-    Serial2.write(0xff);
-    Serial2.print("vis starting,0");
-  Serial2.write(0xff);
-    Serial2.write(0xff);
-    Serial2.write(0xff);
-    Serial.print("FinishEntflammung ausgeführt");
-   Serial.print("\n");
+  digitalWrite(RELAISPIN, HIGH);
+	starting = false;           // bool zurücksetzen
+	Serial2.print("Main.vastarting.val=0"); // Kann man noch über die Nextion Bibliothek proggen 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("vis starting,0");
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial.print("FinishEntflammung ausgeführt");
+	Serial.print("\n");
 }
 
 
 void Startphase(){ 
   int delta;
   delta = aTsoll-aT5;
-  if (starting && ((millis() - EntflammungTimerCurrent > 60000) || aT5>95 || delta<5)){
-    FinishEntflammung();        //Startphase abbrechen, wenn Zieltemperatur oder aTsoll erreicht. 
-    Serial.print("Startphase if mit true ausgeführt");
-    Serial.print("\n");
+  if (starting && ((millis() - EntflammungTimerCurrent > 1800000) || aT5>95 || delta<5)){
+  FinishEntflammung();        //Startphase abbrechen, wenn Zieltemperatur oder aTsoll erreicht. 
+  Serial.print("Startphase if mit true ausgeführt");
+  Serial.print("\n");
   }
   Serial.print("Startphase ausgeführt");
   Serial.print("\n");
@@ -299,6 +315,190 @@ void Startphase(){
 
 // Anfang PWM Manuelle Lüfter Kontrolle Funktionalität ----------------------------------------------------------
 
+
+
+
+// Anfang Regler / Autotune Funktionalität //0 Manual 1 Automatic
+
+void ModeAutomatic(){
+	myPID.SetMode(AUTOMATIC);    // Wenn Auto-Mode auf "1" steht PID in automatic stellen bei Wechsel von manual auf automatic wird der PID neu initialisiert steht er bereits auf automatic passiert nichts.
+  Serial2.print("Fan.vaauto.val=1"); // tuning auf Display darstellen
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("page Fan"); 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial.print("StartAutoTune ausgeführt");
+  	Serial.print("\n");
+    Serial.print("Callback Mode Automatic gesetzt");
+    Serial.print("\n");
+}
+
+void ModeManual(){
+	myPID.SetMode(MANUAL);    // Wenn Auto-Mode auf "1" steht PID in automatic stellen bei Wechsel von manual auf automatic wird der PID neu initialisiert steht er bereits auf automatic passiert nichts.
+    Serial2.print("Fan.vaauto.val=0"); // tuning auf Display darstellen
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("page Fan"); 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+    Serial.print("Callback Mode Manual gesetzt");
+    Serial.print("\n");
+}
+
+void fanmodePopCallback(void *ptr){
+	if (!myPID.GetMode()) {         // Lüfterregelung nur ausführen, wenn Auto-mode auf "1" steht
+    ModeAutomatic();
+    }
+  else
+    {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
+    ModeManual();
+	 }
+}
+
+void tunePopCallback(void *ptr){
+	if (!tuning) {         // Lüfterregelung nur ausführen, wenn Auto-mode auf "1" steht
+    StartAutoTune();
+    }
+  else
+    {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
+    CancelAutoTune();
+	}
+}
+
+
+void docontrol()
+	{	//Temperatur für Regler und Autotune berechnen
+		unsigned long currentMillis2 = millis();
+		if (currentMillis2 - previousMillis2 >= (atsample/4)) 
+  		{ // Der folgende Code wird mit doppelter Sample Time ausgeführt
+    	previousMillis2 = currentMillis2;
+    	aT5 = thermo.readCelsius();
+    	Input = aT5; 
+    	//Serial.print("aT5 für Regler Berechnet");
+		}
+
+		if (tuning)
+		{
+			if (aTune.Runtime()) // Autotune algorithm returns 'true' when done
+     		{
+        	FinishAutoTune();
+     		}
+			//Serial.print("Autotune Output berechnet");
+		}
+		else{
+		myPID.Compute();			// Muss im Loop regelmäßig abgerufen werden
+		}
+    if (lastOutput != Output){
+		PWMoutput(Output);       //Setzt den Output 
+		lastOutput = Output;
+		Serial.print("Output veränderung");
+		Serial.print(Output);
+		}
+
+		
+
+  //Serial.print("docontrol ausgeführt");
+	//Serial.print("\n");
+
+  	}
+
+void PWMoutput(int PWM) {
+  	Serial2.print("Fan.n0.val=" + String(PWM)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
+  	Serial2.write(0xff);
+  	Serial2.write(0xff);
+  	Serial2.write(0xff);
+  	Serial.print("PWMoutput ausgeführt: ");
+	  Serial.print(PWM);
+	  Serial.print("\n");
+	  cache = map(Output, 85, 255, 0, 100); // PID-Output für Display konvertieren
+	  fan.setValue(cache);    // Fan Leistungsindikator auf Main-Screen
+	  fanbar.setValue(cache);
+	  slider.setValue(cache);
+    if (PWM <= 90) 
+    {       // kleine Werte auf '0' setzen, damit der Lüfter geschont wird (bei zu geringer PWM dreht dieser nicht)
+    PWM = 0;
+    }
+    analogWrite(PWMpin, PWM);             // aktuellen PWM Wert an PWM-Pin senden
+}
+
+
+
+
+void StartAutoTune()
+{
+	// REmember the mode we were in
+	//ATuneModeRemember = myPID.GetMode(); // in meinen Augen Sinnlos, da er immer wieder zurück in Automatik springen soll
+ 
+	// set up the auto-tune parameters
+	aTune.SetNoiseBand(aTuneNoise);
+	aTune.SetOutputStep(aTuneStep);
+	aTune.SetLookbackSec((int)aTuneLookBack);
+	tuning = true;
+	Output = 170;
+  	Serial2.print("Main.vatuning.val=1"); // tuning auf Display darstellen
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("page Fan"); 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial.print("StartAutoTune ausgeführt");
+  Serial.print("\n");
+}
+
+void CancelAutoTune(){
+	aTune.Cancel();				//Beim Umschalten auf Manuell Autotune abschalten
+	tuning = false; 
+	Serial2.print("Main.vatuning.val=0"); // tuning auf Display ausblenden
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("page Fan"); 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+}
+
+void FinishAutoTune()
+{
+   tuning = false;
+ 
+   // Extract the auto-tune calculated parameters
+	aKP = aTune.GetKp();	
+	aKI = aTune.GetKi();
+	aKD = aTune.GetKd();
+ 	dispKP = aKP;
+	dispKI = aKI*1000;
+ 	dispKD = aKD*100;
+ 	
+   // Re-tune the PID and revert to normal control mode
+   myPID.SetTunings(aKP,aKI,aKD);	
+   myPID.SetMode(AUTOMATIC);
+   
+   // Persist any changed parameters to EEPROM
+ 	EEPROMWriteInt(0, dispKP);   // Werte in EEPROM schreiben
+	EEPROMWriteInt(2, dispKI);
+	EEPROMWriteInt(4, dispKD);
+
+ 	loadEEPROM("config", "KP", dispKP); // KP Nur für die Darstellung auf dem Display 
+  	loadEEPROM("config", "KI", dispKI); // KI
+  	loadEEPROM("config", "KD", dispKD); // KD
+
+   	Serial2.print("Main.vatuning.val=0"); // tuning auf Display ausblenden
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.print("vis tuning,0"); 
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+	Serial2.write(0xff);
+}
 
 
 // Anfang Temperaturmessung-Funtionalität -----------------------------------------
@@ -401,6 +601,7 @@ void measuretemp()
 }
 
 
+
 //-------------------- Temperatur an Display senden --------------------
 void sendTemp(int TempNum, float Temp) //Diese Funktion zerlegt einen float-Temperaturwert in zwei Integer und sendet diese and das Display
 {
@@ -455,6 +656,17 @@ void setup()
   Serial.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
   Serial2.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
   analogReference(EXTERNAL); // Für analoge Temperatursensoren
+  //Pinmodes definieren
+
+  pinMode(RELAISPIN, OUTPUT); //Relaispin als Output definieren
+  digitalWrite(RELAISPIN, HIGH); // Relais als default ausschalten HIGH=OFF LOW=ON
+
+  pinMode(PWMpin, OUTPUT);  // Pin als Putput definieren
+
+
+
+
+
 
   nexInit(); //serielle Verbindung zwischen Display und Arduino konfigurieren
   //Soll-Temperatur Callbacks attach
@@ -467,30 +679,52 @@ void setup()
   Entflammung.attachPop(EntflammungPopCallback);
   stpEntflammung.attachPop(stpEntflammungPopCallback);
 
-
+  //Callbacks für Fanmode und Autotune
+  tune.attachPop(tunePopCallback);
+  fanmode.attachPop(fanmodePopCallback);
 
   //Initialisierung Variablen Regler
   // Gespeicherte Werte aus EEPROM laden und ans Display senden:
-  loadEEPROM("config", "KP", EEPROMReadInt(0)); // KP NUr für die Darstellung auf dem Display 
-  dispKP = EEPROMReadInt(0);						//Übergabe von EEPROM an Variablen Arbeitsspeicher
-  loadEEPROM("config", "KI", EEPROMReadInt(2)); // KI
+  dispKP = EEPROMReadInt(0);            //Übergabe von EEPROM an Variablen Arbeitsspeicher
+  loadEEPROM("config", "KP", dispKP); // KP Nur für die Darstellung auf dem Display 
+  delay(100);
   dispKI = EEPROMReadInt(2);
-  loadEEPROM("config", "KD", EEPROMReadInt(4)); // KD
+  loadEEPROM("config", "KI", dispKI); // KI
+  delay(100);
   dispKD = EEPROMReadInt(4);
-  loadEEPROM("config", "tsample", EEPROMReadInt(6)); // tsample
+  loadEEPROM("config", "KD", dispKD); // KD
+  delay(100);
   atsample = EEPROMReadInt(6);
+  loadEEPROM("config", "tsample", atsample); // tsample
+  delay(100);
   myPID.SetSampleTime(atsample);			// Sample Time für Regler einstellen
-  loadEEPROM("main", "Tsoll", EEPROMReadInt(8)); // Tsoll
   aTsoll = EEPROMReadInt(8);
-  loadEEPROM("Fan", "mode", EEPROMReadInt(10)); // Fan-mode (1:auto, 0:manuell)
+  loadEEPROM("main", "Tsoll", aTsoll); // Tsoll
+  Setpoint = aTsoll;
+  delay(100);
   PIDmode = EEPROMReadInt(10);
-
+  loadEEPROM("Fan", "mode", EEPROMReadInt(10)); // Fan-mode (1:auto, 0:manuell)
+  delay(100);
+  
+  
   aKP = dispKP;
   aKI = dispKI/1000;
-  aKD = dispKD/1000;
+  aKD = dispKD/100;
 
   myPID.SetTunings(aKP, aKI, aKD);
   myPID.SetOutputLimits(85, 255);
+
+  
+  if (PIDmode = 1) {         // Initialisierung der Fan Seite
+    ModeAutomatic();
+    }
+  else
+    {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
+    ModeManual();
+   }
+
+
+    CancelAutoTune();
 
 }
 
@@ -506,8 +740,9 @@ void loop()
     previousMillis = currentMillis;
     Startphase();
     measuretemp();
+    
   }
-
+  docontrol();
 
 
 }
