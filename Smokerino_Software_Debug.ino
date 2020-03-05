@@ -78,6 +78,8 @@ int dispKI;
 int dispKD;
 
 
+
+
 // Variablen für PID-Regler und Autotune:
 double Setpoint;
 double Input;
@@ -95,7 +97,7 @@ boolean starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, P_ON_M,  DIRECT); // Library Befehl für PID
+PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, P_ON_E,  DIRECT); // Library Befehl für PID
 PID_ATune aTune(&Input, &Output); //Library Befehl für Autotune
 
 NexNumber t1   = NexNumber(0, 1, "t1");
@@ -199,12 +201,22 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   delay(100);
   EEPROMWriteInt(8, aTsoll); // aktuell eingestellten Tsoll-Wert speichern
   delay(100);
-  PIDmode = myPID.GetMode();
+  if (myPID.GetMode()==AUTOMATIC)
+  {
+    PIDmode=1;
+  }
+  else{
+    PIDmode=0;
+  }
   EEPROMWriteInt(10, PIDmode);  // aktuellen Fan-modus speichern
 
+
+  double doudispKI = dispKI;
+  double doudispKD = dispKD;
+  
   aKP = dispKP;
-  aKI = dispKI/1000;
-  aKD = dispKD/100;
+  aKI = doudispKI/1000;
+  aKD = doudispKD/100;
   
   myPID.SetTunings(aKP, aKI, aKD);
 
@@ -223,7 +235,7 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
 
 
 
-// Soll-Temperatur einsetllen Funktionalität -----------------------------------------------------
+// Soll-Temperatur einstellen Funktionalität -----------------------------------------------------
 
 void TupPopCallback(void *ptr) {  // Funktion für Temperatur erhöhen
     Tsoll.getValue(&mynumber);      // Wert der eingestellten Temperatur abrufen
@@ -378,8 +390,14 @@ void docontrol()
   		{ // Der folgende Code wird mit doppelter Sample Time ausgeführt
     	previousMillis2 = currentMillis2;
     	aT5 = thermo.readCelsius();
-    	Input = aT5; 
+      if(aT5>20 && aT5<500 ){
+        Input = aT5;
+      }
+       else{
+        Serial.print("Fehler beim Sensorwert für aT5");
+            }
     	//Serial.print("aT5 für Regler Berechnet");
+    Serial.print(Input);
 		}
 
 		if (tuning)
@@ -393,6 +411,7 @@ void docontrol()
 		else{
 		myPID.Compute();			// Muss im Loop regelmäßig abgerufen werden
 		}
+    
     if (lastOutput != Output){
 		PWMoutput(Output);       //Setzt den Output 
 		lastOutput = Output;
@@ -408,18 +427,21 @@ void docontrol()
   	}
 
 void PWMoutput(int PWM) {
-  	Serial2.print("Fan.n0.val=" + String(PWM)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
-  	Serial2.write(0xff);
-  	Serial2.write(0xff);
-  	Serial2.write(0xff);
+
   	Serial.print("PWMoutput ausgeführt: ");
 	  Serial.print(PWM);
 	  Serial.print("\n");
-	  cache = map(Output, 85, 255, 0, 100); // PID-Output für Display konvertieren
-	  fan.setValue(cache);    // Fan Leistungsindikator auf Main-Screen
+	  cache = map(PWM, 85, 255, 0, 100); // PID-Output für Display konvertieren
+    Serial2.print("Fan.n0.val=" + String(cache)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
+    Serial2.write(0xff);
+    Serial2.write(0xff);
+    Serial2.write(0xff);
+
+
+    fan.setValue(cache);    // Fan Leistungsindikator auf Main-Screen
 	  fanbar.setValue(cache);
 	  slider.setValue(cache);
-    if (PWM <= 90) 
+    if (PWM <= 86) 
     {       // kleine Werte auf '0' setzen, damit der Lüfter geschont wird (bei zu geringer PWM dreht dieser nicht)
     PWM = 0;
     }
@@ -516,6 +538,9 @@ float convertTemp(float average)
 
 }
 
+
+
+
 void measuretemp()
 {
 
@@ -598,6 +623,8 @@ void measuretemp()
     // Temperatur ausgeben:
     aT5 = thermo.readCelsius();
     sendTemp(5, aT5);  // aktuellen Grillraum-Temperaturwert an Display senden
+
+    Serial.print("Measure Temp ausgeführt");
 }
 
 
@@ -650,6 +677,8 @@ void sendTemp(int TempNum, float Temp) //Diese Funktion zerlegt einen float-Temp
 // Ende Temperatur-Funktionalität -------------------------------------------------------------------------------------------------
 
 
+
+
 void setup()
 {
 	//Serials
@@ -683,6 +712,9 @@ void setup()
   tune.attachPop(tunePopCallback);
   fanmode.attachPop(fanmodePopCallback);
 
+  
+
+
   //Initialisierung Variablen Regler
   // Gespeicherte Werte aus EEPROM laden und ans Display senden:
   dispKP = EEPROMReadInt(0);            //Übergabe von EEPROM an Variablen Arbeitsspeicher
@@ -699,17 +731,20 @@ void setup()
   delay(100);
   myPID.SetSampleTime(atsample);			// Sample Time für Regler einstellen
   aTsoll = EEPROMReadInt(8);
-  loadEEPROM("main", "Tsoll", aTsoll); // Tsoll
+  loadEEPROM("Main", "Tsoll", aTsoll); // Tsoll
   Setpoint = aTsoll;
   delay(100);
   PIDmode = EEPROMReadInt(10);
-  loadEEPROM("Fan", "mode", EEPROMReadInt(10)); // Fan-mode (1:auto, 0:manuell)
+  loadEEPROM("Fan", "vaauto", PIDmode); // Fan-mode (1:auto, 0:manuell)
   delay(100);
   
   
+  double doudispKD = dispKD;
+  double doudispKI = dispKI;
+
   aKP = dispKP;
   aKI = dispKI/1000;
-  aKD = dispKD/100;
+  aKD = doudispKD/100;
 
   myPID.SetTunings(aKP, aKI, aKD);
   myPID.SetOutputLimits(85, 255);
