@@ -45,6 +45,7 @@
 int addr = 0;         // Startadresse für EEPROM-Speicher
 int cache;
 int PIDmode = 0;            // Modus für Lüftersteuerung (1:auto; 0:manuell)
+int optProp = 0; 
 
 int32_t mynumber;  // besonderer Integer fürs Abrufen der Werte vom Display
 int   aTsoll ;     // Solltemperatur für interne Verarbeitung im Arduino
@@ -86,7 +87,6 @@ double Input;
 double Output;
 double lastOutput;
 
-byte ATuneModeRemember=2;
 double aTuneStep=85;
 double aTuneNoise=1;
 unsigned int aTuneLookBack=60;
@@ -97,7 +97,7 @@ boolean starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
 //Specify the links and initial tuning parameters
-PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, P_ON_E,  DIRECT); // Library Befehl für PID
+PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, DIRECT); // Library Befehl für PID
 PID_ATune aTune(&Input, &Output); //Library Befehl für Autotune
 
 NexNumber t1   = NexNumber(0, 1, "t1");
@@ -125,6 +125,9 @@ NexNumber KI = NexNumber(2, 2, "KI");
 NexNumber KD = NexNumber(2, 3, "KD");
 NexNumber tsample = NexNumber(2, 4, "tsample");
 NexButton save = NexButton(2, 22, "save");
+
+NexVariable vaPon = NexVariable(2, 25, "vaPon");
+
 //NexPicture Diskette = NexPicture(2, 24, "Diskette");
 
 //Definition, auf welche Elemente des Displays der Arduino reagieren soll:
@@ -184,21 +187,32 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   EEPROMWriteInt(0, dispKP);   // Werte in EEPROM schreiben
   Serial.println(dispKP);
   delay(100);
+  
   KI.getValue(&mynumber);
   dispKI = mynumber;
   EEPROMWriteInt(2, dispKI);
   Serial.println(dispKI);
   delay(100);
+  
   KD.getValue(&mynumber);
   dispKD = mynumber;
   EEPROMWriteInt(4, dispKD);
   Serial.println(dispKD);
   delay(100);
+  
   tsample.getValue(&mynumber);
-  //EEPROMWriteInt(6, mynumber);
+  EEPROMWriteInt(6, mynumber);
   atsample = mynumber;
   Serial.println(atsample);
   delay(100);
+  
+  vaPon.getValue(&mynumber);
+  optProp = mynumber;
+  EEPROMWriteInt(12, optProp);
+  Serial.println(optProp);
+  delay(100);
+  
+
   EEPROMWriteInt(8, aTsoll); // aktuell eingestellten Tsoll-Wert speichern
   delay(100);
   if (myPID.GetMode()==AUTOMATIC)
@@ -210,7 +224,7 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   }
   EEPROMWriteInt(10, PIDmode);  // aktuellen Fan-modus speichern
 
-
+  
   double doudispKI = dispKI;
   double doudispKD = dispKD;
   
@@ -218,7 +232,17 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   aKI = doudispKI/1000;
   aKD = doudispKD/100;
   
-  myPID.SetTunings(aKP, aKI, aKD);
+
+
+  if (optProp == 1) {         // Initialisierung der Fan Seite
+    myPID.SetTunings(aKP, aKI, aKD, P_ON_M);
+    Serial.print("Proportional on Measurement");
+    }
+  else
+    {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
+    myPID.SetTunings(aKP, aKI, aKD, P_ON_E);
+    Serial.print("Proportional on Error");
+   }
 
 
 
@@ -374,7 +398,15 @@ void fanmodePopCallback(void *ptr){
 
 void tunePopCallback(void *ptr){
 	if (!tuning) {         // Lüfterregelung nur ausführen, wenn Auto-mode auf "1" steht
-    StartAutoTune();
+    if(abs(Input - aTsoll)<10){
+      StartAutoTune();
+    }
+    else{
+    Serial2.print("page autotunefehler"); 
+    Serial2.write(0xff);
+    Serial2.write(0xff);
+    Serial2.write(0xff);
+    }
     }
   else
     {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
@@ -737,7 +769,9 @@ void setup()
   PIDmode = EEPROMReadInt(10);
   loadEEPROM("Fan", "vaauto", PIDmode); // Fan-mode (1:auto, 0:manuell)
   delay(100);
-  
+  optProp = EEPROMReadInt(12);
+  delay(100);
+  loadEEPROM("config", "vaPon", optProp);
   
   double doudispKD = dispKD;
   double doudispKI = dispKI;
@@ -746,11 +780,20 @@ void setup()
   aKI = dispKI/1000;
   aKD = doudispKD/100;
 
-  myPID.SetTunings(aKP, aKI, aKD);
+  
+  if (optProp == 1) {         // Initialisierung der Fan Seite
+    myPID.SetTunings(aKP, aKI, aKD, P_ON_M);
+    Serial.print("Proportional on Measurement");
+    }
+  else
+    {        // Wenn Auto-Mode auf "0" steht PID in manuell stellen
+    myPID.SetTunings(aKP, aKI, aKD, P_ON_E);
+    Serial.print("Proportional on Error");
+   }
+  
   myPID.SetOutputLimits(85, 255);
 
-  
-  if (PIDmode = 1) {         // Initialisierung der Fan Seite
+  if (PIDmode == 1) {         // Initialisierung der Fan Seite
     ModeAutomatic();
     }
   else
