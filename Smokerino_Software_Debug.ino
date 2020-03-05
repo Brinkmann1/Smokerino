@@ -387,7 +387,7 @@ void ModeManual(){
 }
 
 void fanmodePopCallback(void *ptr){
-	if (!myPID.GetMode()) {         // Lüfterregelung nur ausführen, wenn Auto-mode auf "1" steht
+	if (myPID.GetMode()==MANUAL) {         // Lüfterregelung nur ausführen, wenn Auto-mode auf "1" steht
     ModeAutomatic();
     }
   else
