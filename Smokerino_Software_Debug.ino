@@ -78,7 +78,7 @@ int dispKP;		// PID Parameter für Display und EEPROM
 int dispKI;
 int dispKD;
 
-
+bool manualOut;
 
 
 // Variablen für PID-Regler und Autotune:
@@ -90,10 +90,10 @@ double lastOutput;
 double aTuneStep=85;
 double aTuneNoise=1;
 unsigned int aTuneLookBack=60;
-boolean tuning = false;
+bool tuning = false;
 
 //Variablen für Autostart
-boolean starting = false;
+bool starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
 //Specify the links and initial tuning parameters
@@ -426,10 +426,10 @@ void docontrol()
         Input = aT5;
       }
        else{
-        Serial.print("Fehler beim Sensorwert für aT5");
+        //Serial.print("Fehler beim Sensorwert für aT5");
             }
     	//Serial.print("aT5 für Regler Berechnet");
-    Serial.print(Input);
+    //Serial.print(Input);
 		}
 
 		if (tuning)
@@ -459,25 +459,35 @@ void docontrol()
   	}
 
 void PWMoutput(int PWM) {
-
-  	Serial.print("PWMoutput ausgeführt: ");
-	  Serial.print(PWM);
-	  Serial.print("\n");
-	  cache = map(PWM, 85, 255, 0, 100); // PID-Output für Display konvertieren
-    Serial2.print("Fan.n0.val=" + String(cache)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
-    Serial2.write(0xff);
-    Serial2.write(0xff);
-    Serial2.write(0xff);
-
-
-    fan.setValue(cache);    // Fan Leistungsindikator auf Main-Screen
-	  fanbar.setValue(cache);
-	  slider.setValue(cache);
+	if (myPID.GetMode()==AUTOMATIC || tuning)
+	{
+	Serial.print("PWMoutput ausgeführt: ");
+	Serial.print(PWM);
+	Serial.print("\n");
+	cache = map(PWM, 85, 255, 0, 100); // PID-Output für Display konvertieren
+  Serial2.print("Fan.n0.val=" + String(cache)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  fan.setValue(cache);    // Fan Leistungsindikator auf Main-Screen
+	fanbar.setValue(cache);
+	slider.setValue(cache);
+	}
+	else{
+	Serial2.print("Fan.n0.val=" + String(aPWM)); // Sendet den aktuellen PWM-Wert "aPWM" an das Display
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+	fan.setValue(aPWM);    // Fan Leistungsindikator auf Main-Screen
+	Serial.print("PWMoutput Manual ausgeführt: ");
+	Serial.print(PWM);
+	}
+    
     if (PWM <= 86) 
     {       // kleine Werte auf '0' setzen, damit der Lüfter geschont wird (bei zu geringer PWM dreht dieser nicht)
     PWM = 0;
     }
-    analogWrite(PWMpin, PWM);             // aktuellen PWM Wert an PWM-Pin senden
+  analogWrite(PWMpin, PWM);             // aktuellen PWM Wert an PWM-Pin senden 
 }
 
 
@@ -553,6 +563,59 @@ void FinishAutoTune()
 	Serial2.write(0xff);
 	Serial2.write(0xff);
 }
+
+//Manuelle PWM Steuerung ------------------------------------------------
+
+
+
+void PWMupPopCallback(void *ptr) {  // Funktion für PWM erhöhen
+  	if(myPID.GetMode()==AUTOMATIC){
+  		ModeManual();
+  	}
+  	if(tuning){
+  		CancelAutoTune();
+  	}
+  	fanbar.getValue(&mynumber);       // Wert der eingestellten PWM Abrufen
+  	aPWM = mynumber;                  // aktuellen PWM-Soll-Wert für Arduino speichern
+    Output = map(aPWM, 0, 100, 85, 255);
+  	Serial.print("PWMupPopCallback ausgeführt");
+    Serial.print("\n");
+  }
+
+void PWMdownPopCallback(void *ptr) { // Funktion für PWM verringern
+  	if(myPID.GetMode()==AUTOMATIC){
+  		ModeManual();
+  	}
+  	if(tuning){
+  		CancelAutoTune();
+  	}
+  	fanbar.getValue(&mynumber);        // Wert der eingestellten Temperatur abrufen
+  	aPWM = mynumber;                   // aktuellen PWM-Soll-Wert für Arduino speichern
+  	Output = map(aPWM, 0, 100, 85, 255);
+  	Serial.print("PWMdownPopCallback ausgeführt");
+    Serial.print("\n");
+  }
+
+void sliderPopCallback(void *ptr) { // Funktion für PWM Slider-Wert
+  	if(myPID.GetMode()==AUTOMATIC){
+  		ModeManual();
+  	}
+  	if(tuning){
+  		CancelAutoTune();
+  	}
+  	delay(100);
+  	fanbar.getValue(&mynumber);        // Wert der eingestellten Temperatur abrufen
+  	aPWM = mynumber;                   // aktuellen PWM Slider-Wert für Arduino speichern
+  	//PWM = map(aPWM, 85, 100, 0, 255);      // eingestellten Wert auf 0-255 Range konvertieren
+  	Output = map(aPWM, 0, 100, 85, 255);
+  	Serial.print("sliderPopCallback ausgeführt");
+    Serial.print(aPWM);
+    Serial.print("\n");
+  }
+
+
+
+
 
 
 // Anfang Temperaturmessung-Funtionalität -----------------------------------------
@@ -744,6 +807,12 @@ void setup()
   tune.attachPop(tunePopCallback);
   fanmode.attachPop(fanmodePopCallback);
 
+  //Callbacks für PWM 
+  slider.attachPop(sliderPopCallback);
+  PWMup.attachPop(PWMupPopCallback);
+  PWMdown.attachPop(PWMdownPopCallback);
+  
+
   
 
 
@@ -803,6 +872,11 @@ void setup()
 
 
     CancelAutoTune();
+  
+  Serial2.print("page Main"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
 
 }
 
