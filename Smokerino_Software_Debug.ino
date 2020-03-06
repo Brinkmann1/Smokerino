@@ -78,8 +78,6 @@ int dispKP;		// PID Parameter für Display und EEPROM
 int dispKI;
 int dispKD;
 
-bool manualOut;
-
 
 // Variablen für PID-Regler und Autotune:
 double Setpoint;
@@ -287,6 +285,10 @@ void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
    Serial.println(aT5);
     if (aT5<90 && aT5<aTsoll)
   {
+    if (tuning)
+    {
+    	CancelAutoTune();
+    }
     StartEntflammung();
   }
   else{
