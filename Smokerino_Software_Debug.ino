@@ -303,6 +303,7 @@ void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
 }
 
 void StartEntflammung(){
+  ModeAutomatic();
   digitalWrite(RELAISPIN, LOW);
   EntflammungTimerCurrent = millis();
   starting = true; 
@@ -368,8 +369,6 @@ void ModeAutomatic(){
 	Serial2.write(0xff);
 	Serial2.write(0xff);
 	Serial2.write(0xff);
-	Serial.print("StartAutoTune ausgeführt");
-  	Serial.print("\n");
     Serial.print("Callback Mode Automatic gesetzt");
     Serial.print("\n");
 }
@@ -515,7 +514,7 @@ void StartAutoTune()
 	Serial2.write(0xff);
 	Serial2.write(0xff);
 	Serial.print("StartAutoTune ausgeführt");
-  Serial.print("\n");
+  	Serial.print("\n");
 }
 
 void CancelAutoTune(){
