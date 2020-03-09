@@ -126,6 +126,12 @@ NexButton save = NexButton(2, 22, "save");
 
 NexVariable vaPon = NexVariable(2, 25, "vaPon");
 
+NexButton b1 = NexButton(0,17, "b1");  // Button Main auf Main 
+NexButton b0 = NexButton(1,1, "b0");  // Button Main auf Fan
+NexButton b8 = NexButton(2,13, "b8");  // Button Main auf Cofig 
+NexButton ok1 = NexButton(4,2, "ok1");  // Button OK auf Main  
+NexButton ok2 = NexButton(5,2, "ok2");  // Button Main auf Main  
+//NexButton ok3 = NexButton(6,2, "ok3");  // Button Main auf Main  
 //NexPicture Diskette = NexPicture(2, 24, "Diskette");
 
 //Definition, auf welche Elemente des Displays der Arduino reagieren soll:
@@ -140,6 +146,12 @@ NexTouch *nex_listen_list[] = {   // listen for these
   &stpEntflammung,
   &tune,
   &fanmode,
+  &b1,
+  &b0,
+  &b8,
+  &ok1,
+  &ok2,
+  //&ok3,
   NULL //ende der Liste
 };
 
@@ -151,6 +163,32 @@ int max6675CLK = 24; // Serial2 Clock am PIN 10
 
 // Initialisierung der MAX6675 Bibliothek mit den Werten der PINs:
 MAX6675 thermo(max6675CLK, max6675CS, max6675SO);
+
+// Main Page Callbacks
+
+void b1PopCallback(void *ptr){
+	measuretemp();
+}
+
+void b0PopCallback(void *ptr){
+	measuretemp();
+}
+
+void b8PopCallback(void *ptr){
+	measuretemp();
+}
+
+void ok1PopCallback(void *ptr){
+	measuretemp();
+}
+
+void ok2PopCallback(void *ptr){
+	measuretemp();
+}
+
+void ok3PopCallback(void *ptr){
+	measuretemp();
+}
 
 // -------------------- EEPROM Funktionalität ----------------------------------------------------
 
@@ -281,6 +319,7 @@ void TdownPopCallback(void *ptr) {  // Funktion für Temperatur verringern
 // Anfang Entflammungsfunktionalität -----------------------------------------------------------
 
 void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
+   measuretemp();
    aT5 = thermo.readCelsius();
    Serial.println(aT5);
     if (aT5<90 && aT5<aTsoll)
@@ -303,7 +342,13 @@ void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
 }
 
 void StartEntflammung(){
-  ModeAutomatic();
+  if(myPID.GetMode()!=AUTOMATIC){
+  myPID.SetMode(AUTOMATIC);    // Wenn Auto-Mode auf "1" steht PID in automatic stellen bei Wechsel von manual auf automatic wird der PID neu initialisiert steht er bereits auf automatic passiert nichts.
+  Serial2.print("Fan.vaauto.val=1"); // tuning auf Display darstellen
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  }
   digitalWrite(RELAISPIN, LOW);
   EntflammungTimerCurrent = millis();
   starting = true; 
@@ -320,8 +365,9 @@ void StartEntflammung(){
 }
 
 void stpEntflammungPopCallback(void *ptr){
-  FinishEntflammung();
-  Serial.print("stpEntflammungPopCallback ausgeführt");
+	measuretemp();
+	FinishEntflammung();
+	Serial.print("stpEntflammungPopCallback ausgeführt");
 }
 
 void FinishEntflammung(){
@@ -482,6 +528,8 @@ void PWMoutput(int PWM) {
 	fan.setValue(aPWM);    // Fan Leistungsindikator auf Main-Screen
 	Serial.print("PWMoutput Manual ausgeführt: ");
 	Serial.print(PWM);
+  slider.setValue(aPWM);
+  fanbar.setValue(aPWM);
 	}
     
     if (PWM <= 86) 
@@ -598,20 +646,22 @@ void PWMdownPopCallback(void *ptr) { // Funktion für PWM verringern
   }
 
 void sliderPopCallback(void *ptr) { // Funktion für PWM Slider-Wert
+  	delay(100);
+    slider.getValue(&mynumber);        // Wert der eingestellten Temperatur abrufen
   	if(myPID.GetMode()==AUTOMATIC){
   		ModeManual();
   	}
   	if(tuning){
   		CancelAutoTune();
   	}
-  	delay(100);
-  	fanbar.getValue(&mynumber);        // Wert der eingestellten Temperatur abrufen
+
   	aPWM = mynumber;                   // aktuellen PWM Slider-Wert für Arduino speichern
   	//PWM = map(aPWM, 85, 100, 0, 255);      // eingestellten Wert auf 0-255 Range konvertieren
   	Output = map(aPWM, 0, 100, 85, 255);
   	Serial.print("sliderPopCallback ausgeführt");
     Serial.print(aPWM);
     Serial.print("\n");
+    
   }
 
 
@@ -777,6 +827,8 @@ void sendTemp(int TempNum, float Temp) //Diese Funktion zerlegt einen float-Temp
 
 void setup()
 {
+
+  delay(1000);
 	//Serials
   Serial.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
   Serial2.begin(9600); // Beginn der seriellen Kommunikation mit 9600 Baud
@@ -790,7 +842,7 @@ void setup()
 
 
 
-
+  delay(500);
 
 
   nexInit(); //serielle Verbindung zwischen Display und Arduino konfigurieren
@@ -813,9 +865,12 @@ void setup()
   PWMup.attachPop(PWMupPopCallback);
   PWMdown.attachPop(PWMdownPopCallback);
   
-
-  
-
+  	b1.attachPop(b1PopCallback);
+  	b0.attachPop(b0PopCallback);
+	b8.attachPop(b8PopCallback);
+	ok1.attachPop(ok1PopCallback);
+	ok2.attachPop(ok2PopCallback);
+	//ok3.attachPop(ok3PopCallback);
 
   //Initialisierung Variablen Regler
   // Gespeicherte Werte aus EEPROM laden und ans Display senden:
