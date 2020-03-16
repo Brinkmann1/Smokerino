@@ -346,6 +346,12 @@ void wifistartPopCallback(void *ptr){
   Serial2.write(0xff);
   Serial2.write(0xff);
 
+  String SSID = String(ssidchar);
+
+  Serial2.print("t5.txt=\"Verbinde mit Wifi: " + SSID + "\""); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
 
   if(Blynk.connectWiFi(ssidchar, passchar)){
   Serial2.print("vis t1,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
@@ -366,12 +372,16 @@ void wifistartPopCallback(void *ptr){
   Serial2.write(0xff);
   Serial2.write(0xff);
   Serial2.write(0xff);
+  
+  BlynkVal=true;
+
   }
   else {
     Serial2.print("vis t4,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
   Serial2.write(0xff);
   Serial2.write(0xff);
   Serial2.write(0xff);
+  BlynkVal=false;
   }
   }
   else{
@@ -386,6 +396,30 @@ void wifistartPopCallback(void *ptr){
   Serial2.write(0xff);
 }
 
+
+
+void wificonnection(){
+  if(BlynkVal==true){
+    if(!Blynk.connected()){
+      BlynkVal=false;
+      Serial2.print("Main.vawifi.val=0"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+
+      Serial2.print("vis wifipic,0"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+    }
+    else{
+      return;
+    }
+  }
+  else{
+    return;
+  }
+}
 // -------------------- EEPROM Funktionalität ----------------------------------------------------
 
 void writeStringToEEPROM(int addrOffset, const char *chaToWrite)
@@ -1000,7 +1034,17 @@ void measuretemp()
     aT5 = thermo.readCelsius();
     sendTemp(5, aT5);  // aktuellen Grillraum-Temperaturwert an Display senden
 
-    Serial.print("Measure Temp ausgeführt");
+    Serial.print("Measure Temp ausgeführt"); // 5V muss an Platine angeschlossen sein, sonst arbeitet der Chip nicht 
+
+    if(BlynkVal){
+    BlynksendTemp(0, aT5);
+    BlynksendTemp(1, convertTemp(averageT1));
+    BlynksendTemp(2, convertTemp(averageT2));
+    BlynksendTemp(3, convertTemp(averageT3));
+    BlynksendTemp(4, convertTemp(averageT4));
+    }
+    
+
 
 }
 
@@ -1051,6 +1095,16 @@ void sendTemp(int TempNum, float Temp) //Diese Funktion zerlegt einen float-Temp
   }
 }
 
+
+
+void BlynksendTemp(int Pin, float Temp){
+  if(Temp>0){
+    Blynk.virtualWrite(Pin, Temp);
+  }
+  else{
+    Blynk.virtualWrite(Pin, 0);
+  }
+}
 // Ende Temperatur-Funktionalität -------------------------------------------------------------------------------------------------
 
 
@@ -1063,7 +1117,7 @@ void setup()
 
 
   // Debug console
-  Serial.begin(9600);
+  //Serial.begin(9600);
   delay(10);
 
   Serial2.begin(9600);
@@ -1207,7 +1261,8 @@ void loop()
     previousMillis = currentMillis;
     Startphase();
     measuretemp();
-    
+    wificonnection();    
+
   }
   docontrol();
 }
