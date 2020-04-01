@@ -251,7 +251,7 @@ void ok4PopCallback(void *ptr){
 
 void wifisavePopCallback(void *ptr){
   Serial.print("wifisavePopCallback ausgeführt");
-  char ssidchar[33] = {};
+  char ssidchar[100] = {};
 
   wifissid.getText(ssidchar, sizeof(ssidchar));
 
@@ -259,17 +259,17 @@ void wifisavePopCallback(void *ptr){
   Serial.print(ssidchar);
 
   delay(100);  
-  char passchar[33] = {};
+  char passchar[100] = {};
   wifipw.getText(passchar, sizeof(passchar));
 
-  writeStringToEEPROM(60, passchar);
+  writeStringToEEPROM(125, passchar);
   Serial.print(passchar);
   delay(100);
   char tokenchar[33] = {};
 
   wifitoken.getText(tokenchar, sizeof(tokenchar));
 
-  writeStringToEEPROM(100, tokenchar);
+  writeStringToEEPROM(230, tokenchar);
   Serial.print(tokenchar);
 } 
 
@@ -278,9 +278,9 @@ void wifiloadPopCallback(void *ptr){
 
   ssid = readStringFromEEPROM(20);
   delay(100);
-  pass = readStringFromEEPROM(60);
+  pass = readStringFromEEPROM(125);
   delay(100);
-  auth = readStringFromEEPROM(100);
+  auth = readStringFromEEPROM(230);
 
   //Serial.print("läuft er hier lang");
   Serial.print(ssid);
@@ -306,15 +306,15 @@ void wifiloadPopCallback(void *ptr){
 void wifistartPopCallback(void *ptr){
   Serial.print("wifistartPopCallback ausgeführt");
 
-  char ssidchar[33] = {};
-  char passchar[33] = {};
+  char ssidchar[100] = {};
+  char passchar[100] = {};
   char tokenchar[33] = {};
 
-  delay(50);
+  delay(100);
   wifissid.getText(ssidchar, sizeof(ssidchar));
-  delay(50);
+  delay(100);
   wifipw.getText(passchar, sizeof(passchar));
-  delay(50);
+  delay(100);
   wifitoken.getText(tokenchar, sizeof(tokenchar));
 
   Serial.print(passchar);
