@@ -1,24 +1,19 @@
 /*** Smokerino ***
-  Version 0.7
-  Date: 2019-02-13
+  Version 1.0
+  Date: 2020-04-02
   Description:  - Datenaustausch zwischen Arduino und Nextion Display funktioniert
                 - Temperaturen über analoge Temp-Fühler einlesen
                 - Parameter für PID-Regler einstellen und auf Arduino abspeichern
                 - PID Regler Implementierung
-                - "Tsoll" und [Fan-]"mode" werden über "save" auch im EEPROM gespeichert und beim Hochfahren wiederhergestellt (Lastmode)
+                - PID Regler Autotune Implementierung
+                - Alle Einstellung auf der Config Seite und die Solltemperatur werden im EEPROM Abgelegt
+                - Automatischer Grillstart implementiert 
+                - Blynk umgebung Implementiert
+                - Wifidaten lassen sich über das Display eintippen
+                - Automatischer Reconnect beim Verbindungsabbruch falls entsprechend Konfiguriert
 
-  Für Version 0.7 adden:
-                - Autotune Funktion für PID Regler um gute Ausgangsdaten zu bekommen 
-                - Automatischer Grillstart mit Glühstab       
+  In weiteren Versionen adden:
                 - evtl. mehr Einstellmöglichkeiten für den Benutzer bspw. lookback time, maximaler und minimaler output vom Lüfter usw.  
-
--Autotune über Taste aktivieren 
--Autotune nur für Temperatur +- 5 Celsius Zielwert
--Bei umschalten auf Manuel autotune abbrechen
--Wenn autotune läuft Nutzerfeedback
--Übergabe der Variablen an EEPROM / 
--Dem Arduino sagen auf welcher das Display gerade ist, macht das display schneller, da keine Fehlermeldungen entstehen
-
 
 */
 // Blynk Shit
@@ -36,7 +31,11 @@ String auth;
 String ssid;
 String pass;
 
+char ssidchar[100] = {};
+char passchar[100] = {};
+char tokenchar[33] = {};
 
+String SSID;
 // Hardware Serial on Mega, Leonardo, Micro...
 #define EspSerial Serial3
 
@@ -75,7 +74,9 @@ ESP8266 wifi(&EspSerial);
 int addr = 0;         // Startadresse für EEPROM-Speicher
 int cache;
 int PIDmode = 0;            // Modus für Lüftersteuerung (1:auto; 0:manuell)
-int optProp = 0; 
+int optProp = 0;        //Variable Proportional on Measurement 
+int optRec = 0;         //Variable Auto Reconnect 
+int contRec = 1;        //Variable Anzahl der Reconnects
 
 int32_t mynumber;  // besonderer Integer fürs Abrufen der Werte vom Display
 int   aTsoll ;     // Solltemperatur für interne Verarbeitung im Arduino
@@ -93,6 +94,8 @@ float averageT4;
 
 unsigned long previousMillis = 0;     // will store last time LED was updated
 unsigned long previousMillis2 = 0;     // will store last time LED was updated
+unsigned long previousMillis3 = 0;
+unsigned long previousMillis4 = 0;
 //const long interval = 2000;           // interval at which to blink (milliseconds)
 
 int SensorVal;      // Regelgröße für PWM Signal
@@ -125,6 +128,7 @@ bool starting = false;
 unsigned long EntflammungTimerCurrent = 0;  //  Timer für automatischen Start-Abbruch
 
 bool BlynkVal = false; 
+bool ReconVal = false; 
 
 //Specify the links and initial tuning parameters
 PID myPID(&Input, &Output, &Setpoint, aKP, aKI, aKD, DIRECT); // Library Befehl für PID
@@ -157,6 +161,7 @@ NexNumber tsample = NexNumber(2, 4, "tsample");
 NexButton save = NexButton(2, 22, "save");
 
 NexVariable vaPon = NexVariable(2, 25, "vaPon");
+NexVariable vaRec = NexVariable(2, 29, "vaRec");
 
 NexButton b1 = NexButton(0,17, "b1");  // Button Main auf Main 
 NexButton b0 = NexButton(1,1, "b0");  // Button Main auf Fan
@@ -251,22 +256,18 @@ void ok4PopCallback(void *ptr){
 
 void wifisavePopCallback(void *ptr){
   Serial.print("wifisavePopCallback ausgeführt");
-  char ssidchar[100] = {};
-
   wifissid.getText(ssidchar, sizeof(ssidchar));
 
   writeStringToEEPROM(20, ssidchar);
   Serial.print(ssidchar);
 
   delay(100);  
-  char passchar[100] = {};
   wifipw.getText(passchar, sizeof(passchar));
 
   writeStringToEEPROM(125, passchar);
   Serial.print(passchar);
   delay(100);
-  char tokenchar[33] = {};
-
+  
   wifitoken.getText(tokenchar, sizeof(tokenchar));
 
   writeStringToEEPROM(230, tokenchar);
@@ -306,9 +307,7 @@ void wifiloadPopCallback(void *ptr){
 void wifistartPopCallback(void *ptr){
   Serial.print("wifistartPopCallback ausgeführt");
 
-  char ssidchar[100] = {};
-  char passchar[100] = {};
-  char tokenchar[33] = {};
+  
 
   delay(100);
   wifissid.getText(ssidchar, sizeof(ssidchar));
@@ -346,12 +345,14 @@ void wifistartPopCallback(void *ptr){
   Serial2.write(0xff);
   Serial2.write(0xff);
 
-  String SSID = String(ssidchar);
+  SSID = String(ssidchar);
 
   Serial2.print("t5.txt=\"Verbinde mit Wifi: " + SSID + "\""); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
   Serial2.write(0xff);
   Serial2.write(0xff);
   Serial2.write(0xff);
+
+  contRec = 1;
 
   if(Blynk.connectWiFi(ssidchar, passchar)){
   Serial2.print("vis t1,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
@@ -374,7 +375,7 @@ void wifistartPopCallback(void *ptr){
   Serial2.write(0xff);
   
   BlynkVal=true;
-
+  ReconVal=true;
   }
   else {
     Serial2.print("vis t4,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
@@ -397,10 +398,85 @@ void wifistartPopCallback(void *ptr){
 }
 
 
+void blynkautoreconnect(){
+  
+
+  Serial.print("Reconnect");
+  
+  Serial2.print("page wifiscreen"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+
+  Serial2.print("t5.txt=\"Reconnect " + String(contRec) + " Verbinde mit Wifi: " + SSID + "\""); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+  //Blynk.config();
+  if(Blynk.connectWiFi(ssidchar, passchar) && Blynk.connect()){
+  Serial2.print("vis t1,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+  Serial2.print("vis t2,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+  Serial2.print("Main.vawifi.val=1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  
+  BlynkVal=true;
+  contRec = 1;
+  }
+  else {
+  Serial2.print("vis t3,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  contRec = contRec+1;
+
+  Serial2.print("vis t4,1"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  
+  Serial2.print("Main.vawifi.val=0"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+
+  Serial2.print("vis wifipic,0"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+      Serial2.write(0xff);
+  }
+
+  Blynk.run();
+
+  delay(3000);
+
+  Serial2.print("page Main"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  Serial2.write(0xff);
+  measuretemp(); 
+  
+
+}
+
 
 void wificonnection(){
-  if(BlynkVal==true){
-    if(!Blynk.connected()){
+  Serial.print("wificonnection");
+  Serial.print(BlynkVal);
+
+  if(BlynkVal==true && !Blynk.connected()){
+    
       BlynkVal=false;
       Serial2.print("Main.vawifi.val=0"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
       Serial2.write(0xff);
@@ -411,15 +487,14 @@ void wificonnection(){
       Serial2.write(0xff);
       Serial2.write(0xff);
       Serial2.write(0xff);
-    }
-    else{
-      return;
-    }
   }
-  else{
-    return;
+  unsigned long currentMillis = millis();
+  if(ReconVal && optRec==1 && contRec<=10 && (currentMillis - previousMillis4) >= 60000 && !Blynk.connected()){
+    blynkautoreconnect();
+    previousMillis4 = currentMillis;
   }
-}
+  }
+
 // -------------------- EEPROM Funktionalität ----------------------------------------------------
 
 void writeStringToEEPROM(int addrOffset, const char *chaToWrite)
@@ -469,7 +544,7 @@ void loadEEPROM(String pagename, String Variable, int value) {
   Serial2.write(0xff);
   Serial2.write(0xff);
   Serial2.write(0xff);
-
+  Serial.print(value);
 }
 
 void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem EEPROM des Arduino speichern
@@ -504,7 +579,13 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   Serial.println(optProp);
   delay(100);
   
+  vaRec.getValue(&mynumber);
+  optProp = mynumber;
+  EEPROMWriteInt(14, optProp);
+  Serial.println(optProp);
+  delay(100);
 
+  
   EEPROMWriteInt(8, aTsoll); // aktuell eingestellten Tsoll-Wert speichern
   delay(100);
   if (myPID.GetMode()==AUTOMATIC)
@@ -729,7 +810,7 @@ void tunePopCallback(void *ptr){
 void docontrol()
   { //Temperatur für Regler und Autotune berechnen
     unsigned long currentMillis2 = millis();
-    if (currentMillis2 - previousMillis2 >= (atsample/4)) 
+    if ((currentMillis2 - previousMillis2) >= (atsample/4)) 
       { // Der folgende Code wird mit doppelter Sample Time ausgeführt
       previousMillis2 = currentMillis2;
       aT5 = thermo.readCelsius();
@@ -1194,7 +1275,11 @@ void setup()
   optProp = EEPROMReadInt(12);
   delay(100);
   loadEEPROM("config", "vaPon", optProp);
-  
+  delay(100);
+  optRec = EEPROMReadInt(14);
+  delay(100);
+  loadEEPROM("config", "vaRec", optRec);
+
   double doudispKD = dispKD;
   double doudispKI = dispKI;
 
@@ -1241,21 +1326,24 @@ void setup()
 
 void loop()
 {
-  if(BlynkVal){
+  
+  unsigned long currentMillis = millis();
+  if(BlynkVal && (currentMillis - previousMillis3) >= 100){
     Blynk.run();
   // You can inject your own code or combine it with other sketches.
   // Check other examples on how to communicate with Blynk. Remember
   // to avoid delay() function!
     //Serial.print("Blink Run");
    //Serial.print("geht noch ?");
+    previousMillis3 = currentMillis;
   }
   
    
   nexLoop(nex_listen_list);        // Auf Signale vom Display hören
 
 
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= 5000) 
+  
+  if ((currentMillis - previousMillis) >= 5000) 
     { // Der folgende Code wird nur einmal jede Sekunde ausgeführt
     // save the last time you blinked the LED
     previousMillis = currentMillis;
