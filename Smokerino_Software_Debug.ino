@@ -596,7 +596,7 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
     PIDmode=0;
   }
   EEPROMWriteInt(10, PIDmode);  // aktuellen Fan-modus speichern
-
+  delay(100);
   
   double doudispKI = dispKI;
   double doudispKD = dispKD;
@@ -604,6 +604,7 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   aKP = dispKP;
   aKI = doudispKI/1000;
   aKD = doudispKD/100;
+  
   
 
 
