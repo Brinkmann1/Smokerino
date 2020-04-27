@@ -1,6 +1,7 @@
 # Smokerino
 
 Hello everyone, 
+
 after finishing my Master's in mechanical engineering I took the time to develop an Arduino based Smoker Controller (BBQ Arduino WiFi Pitmaster).
 I am trying to make the projekt accessible to a lot more People who love BBQ as much as I do. 
 
