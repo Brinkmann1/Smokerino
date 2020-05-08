@@ -570,6 +570,7 @@ void savePopCallback(void *ptr) { //Alle Parameter im Einstellungsscreen auf dem
   tsample.getValue(&mynumber);
   EEPROMWriteInt(6, mynumber);
   atsample = mynumber;
+  myPID.SetSampleTime(atsample);
   Serial.println(atsample);
   delay(100);
   
