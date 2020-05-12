@@ -1310,6 +1310,10 @@ void setup()
     ModeManual();
    }
 
+   Serial2.print("page Main"); // Sendet den Wert "value" an die gewünschte Variable (KP, KI, KD, tsample)
+    Serial2.write(0xff);
+    Serial2.write(0xff);
+    Serial2.write(0xff);
 
     CancelAutoTune();
   
