@@ -66,6 +66,7 @@ ESP8266 wifi(&EspSerial);
 #define NUMSAMPLES 5             // how many samples to take and average, more takes longer but is more 'smooth'
 #define BCOEFFICIENT 4313        // The beta coefficient of the thermistor (usually 3000-4000)
 #define SERIESRESISTOR 47000     // the value of the 'other' resistor
+#define TSERIESRESISTOR 1000     // value of series thermistor resistor 
 #define RELAISPIN 6       //PIN für Relay 
 #define PWMpin 10       //PIN for PWM
 
@@ -1066,10 +1067,10 @@ void measuretemp()
 
 
     // convert the value to resistance
-    averageT1 = (1023 / averageT1 - 1) * SERIESRESISTOR; // R1 = (Uges / U2 - 1) * R2)
-    averageT2 = (1023 / averageT2 - 1) * SERIESRESISTOR;
-    averageT3 = (1023 / averageT3 - 1) * SERIESRESISTOR;
-    averageT4 = (1023 / averageT4 - 1) * SERIESRESISTOR;
+    averageT1 = ((1023 / averageT1 - 1) * SERIESRESISTOR) - TSERIESRESISTOR; // R1 = (Uges / U2 - 1) * R2) - R1Reihe
+    averageT2 = ((1023 / averageT2 - 1) * SERIESRESISTOR) - TSERIESRESISTOR;
+    averageT3 = ((1023 / averageT3 - 1) * SERIESRESISTOR) - TSERIESRESISTOR;
+    averageT4 = ((1023 / averageT4 - 1) * SERIESRESISTOR) - TSERIESRESISTOR;
     
     // Debug Optionen
 
