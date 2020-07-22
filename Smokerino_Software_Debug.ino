@@ -1119,6 +1119,11 @@ void measuretemp()
     sendTemp(5, aT5);  // aktuellen Grillraum-Temperaturwert an Display senden
 
     Serial.print("Measure Temp ausgeführt"); // 5V muss an Platine angeschlossen sein, sonst arbeitet der Chip nicht 
+    Serial.print(aT5);
+    Serial.print(convertTemp(averageT1));
+    Serial.print(convertTemp(averageT2));
+    Serial.print(convertTemp(averageT3));
+
 
     if(BlynkVal){
     BlynksendTemp(0, aT5);
