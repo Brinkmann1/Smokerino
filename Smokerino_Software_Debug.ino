@@ -668,7 +668,7 @@ void TdownPopCallback(void *ptr) {  // Funktion für Temperatur verringern
 
 void EntflammungPopCallback(void *ptr) {  //callback für Totale Entflammung
    measuretemp();
-   aT5 = thermo.readCelsius();
+   aT5 = thermo.readCelsius()-4;		//-4° Offset auf Grund der nicht ganz korrekten Art den KTyp anzuschließen.
    Serial.println(aT5);
     if (aT5<90 && aT5<aTsoll)
   {
@@ -816,7 +816,7 @@ void docontrol()
     if ((currentMillis2 - previousMillis2) >= (atsample/4)) 
       { // Der folgende Code wird mit doppelter Sample Time ausgeführt
       previousMillis2 = currentMillis2;
-      aT5 = thermo.readCelsius();
+      aT5 = thermo.readCelsius()-4;  	//-4° Offset auf Grund der nicht ganz korrekten Art den KTyp anzuschließen.
       if(aT5>20 && aT5<500 ){
         Input = aT5;
       }
@@ -1115,7 +1115,7 @@ void measuretemp()
     Serial2.write(0xff);
  
     // Temperatur ausgeben:
-    aT5 = thermo.readCelsius();
+    aT5 = thermo.readCelsius()-4;		//-4° Offset auf Grund der nicht ganz korrekten Art den KTyp anzuschließen.
     sendTemp(5, aT5);  // aktuellen Grillraum-Temperaturwert an Display senden
 
     Serial.print("Measure Temp ausgeführt"); // 5V muss an Platine angeschlossen sein, sonst arbeitet der Chip nicht 
