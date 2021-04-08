@@ -23,5 +23,7 @@ Check out my new [Youtube Channel](https://www.youtube.com/channel/UCfTLBc8NLh8V
 To build
 
 .ino is for installing on arduino, make sure to have all the required librarys ready.
+
 .tft is for the nextion display. Put the file on a microsd card and boot the display.
+
 How to wire components will be added later.
