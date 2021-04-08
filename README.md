@@ -18,3 +18,10 @@ Current [Features](https://www.youtube.com/watch?v=hnxOtorUJFU):
 - 4 Meat Temperatures Simultaniously (Up to 8 supported by the Hardware)
 
 Check out my new [Youtube Channel](https://www.youtube.com/channel/UCfTLBc8NLh8VwfUlOfMfpCA/)
+
+
+To build
+
+.ino is for installing on arduino, make sure to have all the required librarys ready.
+.tft is for the nextion display. Put the file on a microsd card and boot the display.
+How to wire components will be added later.
